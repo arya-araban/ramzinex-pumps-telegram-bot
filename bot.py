@@ -1,39 +1,59 @@
 import os
-import sys
 
+import telegram
 from telegram.ext import Updater, CommandHandler
 from threading import Timer, Thread, Event
-import config
 import requests
+import sqlite3 as sl
+
+from ramzinex_git import config
+
+con = sl.connect('my-db.db', check_same_thread=False)  # con has a user table which has a user_id
 
 TOKEN = config.TOKEN
-GROWTH_RATE_PERCENTAGE = 15  # growth rate % to compare once every n seconds. using 10 with 1 MINUTE is a good idea
+
+GROWTH_RATE_PERCENTAGE = 10  # growth rate % to compare once every n seconds. using 10 with 1 MINUTE is a good idea
 # NOTE That for example: Growth rate % 10 means that if a new price is higher than old price + 10% old_price ...
-UPDATE_SECONDS = 50
+UPDATE_SECONDS = 40
 
 pumps = []
-my_bots = {}
 
+bt = telegram.Bot
 old_values = {}
 new_values = {}
-for key, value in requests.get('https://ramzinex.com/exchange/api/exchange/prices').json()['original'].items():
-    if 'irr' in key:
-        new_values[key] = value['buy']
 
-print(new_values)
+data_str = requests.get("https://publicapi.ramzinex.com/exchange/api/v1.0/exchange/pairs?base_id=2").json().get('data')
+for i in range(len(data_str)):
+    new_values[data_str[i]["base_currency_symbol"]["en"]] = data_str[i]['buy']
+del (data_str)
+
+
+def update_prices():
+    global old_values, new_values
+    req = requests.get("https://publicapi.ramzinex.com/exchange/api/v1.0/exchange/pairs?base_id=2")
+    old_values.update(new_values)
+    data_str = req.json().get('data')
+    for i in range(len(data_str)):
+        new_values[data_str[i]["base_currency_symbol"]["en"]] = data_str[i]['buy']
+
+
+# print(new_values)
 
 
 def pumps(update, context):
-    chat_id = update.message.chat_id
+    chat_id = str(update.message.chat_id)
     txt = ''
-    if chat_id not in my_bots:
-        my_bots[chat_id] = context.bot
+    c = con.execute(f"SELECT 1 FROM USER WHERE user_id = {chat_id}")
+    userAlreadyExists = c.fetchone()
+    if not userAlreadyExists:
+        with con:
+            con.execute(f"INSERT INTO USER (user_id) values({chat_id})")
         txt += 'you will receive pump notifications!'
     else:
-        my_bots.pop(chat_id)
+        with con:
+            con.execute(f"DELETE FROM USER WHERE user_id = {chat_id}")
         txt += "you've disabled pump notifications!"
-
-    context.bot.send_message(chat_id=chat_id, text=txt)
+    context.bot.send_message(chat_id=int(chat_id), text=txt)
 
 
 def start(update, context):
@@ -42,7 +62,7 @@ def start(update, context):
                              text="Hey! You can enable or disable pump notifications with the /pumps command")
 
 
-class perpetualTimer():  # timer to run request once every few seconds!
+class perpetualTimer():  # timdp.boter to run request once every few seconds!
     def __init__(self, t, hFunction):
         self.t = t
         self.hFunction = hFunction
@@ -62,10 +82,8 @@ class perpetualTimer():  # timer to run request once every few seconds!
 
 def pumper():  # once every n seconds
     global pumps
-    old_values.update(new_values)
-    for key, value in requests.get('https://ramzinex.com/exchange/api/exchange/prices').json()['original'].items():
-        if 'irr' in key:
-            new_values[key] = value['buy']
+    # print('hola')
+    update_prices()
     diff = {k: new_values[k] - old_values[k] for k in new_values}
     old_values.update(
         {k: int((old_values[k] * GROWTH_RATE_PERCENTAGE) / 100) for k in
@@ -77,16 +95,19 @@ def pumper():  # once every n seconds
     # print(pumps)
 
     if len(pumps) > 0:  # checking for any pumps!
-        for id, bot in my_bots.items():
-            bot.send_message(id, text=f'{str(pumps).translate({39: None})}\nis being pumped!')
+        c = con.execute('SELECT * FROM USER')
+        for row in c:
+            bt.send_message(int(row[0]), text=f'{str(pumps).translate({39: None})}\nis being pumped!')
 
 
 def main():
+    global bt
     t = perpetualTimer(UPDATE_SECONDS, pumper)
-    # t = perpetualTimer(10, pumper)
     t.start()
+
     updater = Updater(TOKEN, use_context=True)
     dp = updater.dispatcher
+    bt = dp.bot
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler('pumps', pumps))
 

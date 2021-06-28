@@ -1,6 +1,6 @@
 # ramzinex pumps telegram bot
 
-A telegram bot which gives out notifications for cryptocurrency pumps that are happening in real-time on the Ramzinex trading platform. 
+A telegram bot which gives out notifications for cryptocurrency pumps that are happening in real-time on the [Ramzinex](https://ramzinex.com/) trading platform. 
 
 The link to the bot I created: [@Ramzinexx_bot](https://t.me/Ramzinexx_bot).
 
